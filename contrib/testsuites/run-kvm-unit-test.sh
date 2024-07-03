@@ -19,6 +19,8 @@
 
 # Parse arguments
 WILDCARD="*"
+UEFI_TEST=""
+UEFI_ENV=""
 while [ true ]; do
     case $1 in
         "--endian")
@@ -29,6 +31,10 @@ while [ true ]; do
             shift
             CONFIGURE_ARGS=$1
             ;;
+        "--repository")
+            shift
+            REPOSITORY=$1
+            ;;
         "--branch")
             shift
             BRANCH=$1
@@ -36,6 +42,14 @@ while [ true ]; do
         "--path")
             shift
             KVM_UNIT_TEST=$1
+            ;;
+	"--uefi-test")
+	    shift
+	    UEFI_TEST=$1
+	    ;;
+        "--uefi-env")
+            shift
+            UEFI_ENV="$1=y"
             ;;
         "--wildcard")
             shift
@@ -47,9 +61,12 @@ while [ true ]; do
             echo "  -h                  Show this help"
             echo "  --endian            Endian flag to kvm-unit-test configure"
             echo "  --configure-args    Arguments given to configure kvm-unit-tests"
+            echo "  --repository        Repository for fetching kvm-unit-tests (default is https://gitlab.com/kvm-unit-tests/kvm-unit-tests.git)"
             echo "  --branch            Branch/tag of kvm-unit-tests to clone (default is master)"
             echo "  --path              Path to kvm-unit-test suite (default is tmp)"
-            echo "  --wildcard          BASH Wildcard to select tests (by default all)"
+            echo "  --wildcard          BASH Wildcard to select tests (by default all),only applies for non-uefi tests"
+            echo "  --uefi-test		Testcase to run with UEFI"
+            echo "  --uefi-env		Environment to run testcases with UEFI"
             echo
             echo "Note: You might need to set ACCEL and/or QEMU env variables."
             exit 1
@@ -80,9 +97,10 @@ setup_skip_exitcode()
 # Initialize directory and download kvm-unit-test if necessary
 [ "$KVM_UNIT_TEST" ] || { KVM_UNIT_TEST="$(mktemp -d)"; CLEAN_DIR=true; }
 [ -n "$BRANCH" ] || BRANCH="master"
+[ -n "$REPOSITORY" ] || REPOSITORY="https://gitlab.com/kvm-unit-tests/kvm-unit-tests.git"
 [ -d "$KVM_UNIT_TEST" ] || mkdir -p "$KVM_UNIT_TEST"
 cd "$KVM_UNIT_TEST"
-[ -f "configure" ] || git clone --depth 1 -b $BRANCH -q https://gitlab.com/kvm-unit-tests/kvm-unit-tests.git . || exit
+[ -f "configure" ] || git clone --depth 1 -b $BRANCH -q $REPOSITORY . || exit
 
 # Compile kvm-unit-test as standalone to get tests as separate files
 ./configure $ENDIAN $CONFIGURE_ARGS || { echo Fail to configure kvm-unit-test; exit -1; }
@@ -90,9 +108,18 @@ make standalone >/dev/null || { echo Fail to "make standalone" kvm-unit-test; ex
 
 setup_skip_exitcode
 
-cd tests
-eval "avocado run ./$WILDCARD $*"
-RET=$?
+if [ -n "$UEFI_TEST" ]
+then
+	echo "#!/usr/bin/env bash
+$UEFI_ENV ./x86/efi/run ./x86/$UEFI_TEST" > ./$UEFI_TEST
+        chmod 755 ./$UEFI_TEST
+        eval "avocado run ./$UEFI_TEST"
+        RET=$?
+else
+        cd tests
+        eval "avocado run ./$WILDCARD $*"
+        RET=$?
+fi
 
 # Cleanup and exit
 [ "$CLEAN_DIR" ] && rm -Rf "$KVM_UNIT_TEST"
