@@ -44,11 +44,17 @@ def url_open(url, data=None, timeout=5):
     :return: file-like object.
     :raises: `URLError`.
     """
-    try:
-        result = urlopen(url, data=data, timeout=timeout)
-    except (socket.timeout, HTTPError) as ex:
-        msg = f"Failed downloading file: {str(ex)}"
-        log.error(msg)
+    retry_attempt=0
+    while retry_attempt<10:
+        try:
+            result = urlopen(url, data=data, timeout=timeout)
+            break
+        except (socket.timeout, HTTPError) as ex:
+            msg = f"Failed downloading file: {str(ex)}"
+            log.error(msg)
+            retry_attempt+=1
+            log.debug(f'retry attempt: {retry_attempt}')
+    if 'result' not in locals():
         return None
 
     msg = (
